@@ -336,9 +336,9 @@
         let h, col;
         if (type === 'high') {
             // 高障碍 - 需要滑铲
-            h = 2.0;
+            h = 1.6;
             col = '#e74c3c';
-            const geo = new THREE.BoxGeometry(1.0, h, 0.3);
+            const geo = new THREE.BoxGeometry(0.8, h, 0.25);
             const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.4, metalness:0.3});
             const bar = new THREE.Mesh(geo, mat);
             bar.position.y = h/2;
@@ -357,9 +357,9 @@
             });
         } else if (type === 'low') {
             // 低障碍 - 需要跳跃
-            h = 0.6;
+            h = 0.5;
             col = '#e67e22';
-            const geo = new THREE.BoxGeometry(1.0, h, 0.5);
+            const geo = new THREE.BoxGeometry(0.8, h, 0.4);
             const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.4, metalness:0.3});
             const block = new THREE.Mesh(geo, mat);
             block.position.y = h/2;
@@ -447,10 +447,10 @@
         playerScaleY = 1;
         score = 0;
         coinCount = 0;
-        gameSpeed = 0.25;
+        gameSpeed = 0.18;
         gameOver = false;
         spawnTimer = 0;
-        spawnDistance = 20;
+        spawnDistance = 35;
 
         player.position.set(targetX, playerY, 0);
         player.scale.set(1, 1, 1);
@@ -526,9 +526,9 @@
         const dx = Math.abs(a.position.x - b.position.x);
         const dy = Math.abs((a.position.y + (isRolling?0.3:1)) - (b.position.y + b.userData.halfWidth/2 || 0.5));
         const dz = Math.abs(a.position.z - b.position.z);
-        const thresholdX = 0.4 + (b.userData.halfWidth || 0.4);
-        const thresholdY = (isRolling ? 0.7 : 1.4);
-        const thresholdZ = 0.5;
+        const thresholdX = 0.35 + (b.userData.halfWidth || 0.35);
+        const thresholdY = (isRolling ? 0.5 : 1.0);
+        const thresholdZ = 0.4;
         return dx < thresholdX && dy < thresholdY && dz < thresholdZ;
     }
 
@@ -632,7 +632,7 @@
         });
 
         // 平滑切换轨道
-        player.position.x += (targetX - player.position.x) * 0.2;
+        player.position.x += (targetX - player.position.x) * 0.35;
 
         // 跳跃
         if (isJumping) {
@@ -662,31 +662,30 @@
 
         // 生成障碍物和金币
         spawnTimer += speed;
-        if (spawnTimer > 3.5 - Math.min(gameSpeed * 2, 2.5)) {
+        if (spawnTimer > 4.5 - Math.min(gameSpeed * 1.5, 3.5)) {
             spawnTimer = 0;
-            const z = spawnDistance + Math.random() * 5;
+            const z = spawnDistance + Math.random() * 8;
             const r = Math.random();
 
-            if (r < 0.35) {
+            if (r < 0.25) {
                 // 单障碍
                 const lane = Math.floor(Math.random() * 3);
                 const type = Math.random() > 0.5 ? 'high' : 'low';
                 obstacles.push(createObstacle(LANE_POSITIONS[lane], z, type));
-            } else if (r < 0.55) {
-                // 双障碍（需要快速切换）
+            } else if (r < 0.35) {
+                // 双障碍
                 const lane1 = Math.floor(Math.random() * 2);
                 const lane2 = lane1 + 1;
-                const type = Math.random() > 0.5 ? 'high' : 'low';
-                obstacles.push(createObstacle(LANE_POSITIONS[lane1], z, type));
-                obstacles.push(createObstacle(LANE_POSITIONS[lane2], z + 0.5, type === 'high' ? 'low' : 'high'));
-            } else if (r < 0.7) {
-                // 火车（占两条道）
+                obstacles.push(createObstacle(LANE_POSITIONS[lane1], z, 'high'));
+                obstacles.push(createObstacle(LANE_POSITIONS[lane2], z + 0.5, 'low'));
+            } else if (r < 0.42) {
+                // 火车（占两条道，降低出现率）
                 const trainLane = Math.random() > 0.5 ? 0 : 1;
                 obstacles.push(createObstacle(LANE_POSITIONS[trainLane], z, 'train'));
             } else {
                 // 金币行
                 const coinLane = Math.floor(Math.random() * 3);
-                const count = 3 + Math.floor(Math.random() * 5);
+                const count = 3 + Math.floor(Math.random() * 6);
                 for (let i = 0; i < count; i++) {
                     coins.push(createCoin(LANE_POSITIONS[coinLane], 1.2, z + i * 1.5));
                 }
