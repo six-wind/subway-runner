@@ -309,6 +309,28 @@
     player.castShadow = true;
     scene.add(player);
 
+    // ========== SOUND EFFECTS ==========
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playSound(freq, type, duration, vol=0.3) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(freq*0.5, audioCtx.currentTime + duration);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
+    function sfxCoin() { playSound(1200, 'sine', 0.15, 0.2); setTimeout(()=>playSound(1600, 'sine', 0.1, 0.15), 80); }
+    function sfxJump() { playSound(300, 'triangle', 0.2, 0.15); }
+    function sfxCrash() { playSound(60, 'sawtooth', 0.5, 0.4); }
+    function sfxStart() { playSound(500, 'sine', 0.15, 0.2); setTimeout(()=>playSound(700, 'sine', 0.15, 0.2), 100); }
+
     // ========== GAME STATE ==========
     let currentLane = 1; // 0=left, 1=center, 2=right
     let targetX = LANE_POSITIONS[currentLane];
@@ -367,10 +389,10 @@
             block.receiveShadow = true;
             group.add(block);
         } else if (type === 'train') {
-            // 火车 - 占据两个轨道
+            // 火车 - 只占两条道，留一条可躲
             h = 2.5;
             col = '#2c3e50';
-            const geo = new THREE.BoxGeometry(3.5, h, 0.6);
+            const geo = new THREE.BoxGeometry(2.5, h, 0.6);
             const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.3, metalness:0.6});
             const train = new THREE.Mesh(geo, mat);
             train.position.y = h/2;
@@ -472,10 +494,12 @@
     }
 
     function startGame() {
+        audioCtx.resume();
         resetGame();
         gameRunning = true;
         overlay.classList.add('hidden');
         gameoverEl.classList.add('hidden');
+        sfxStart();
     }
 
     function endGame() {
@@ -484,6 +508,7 @@
         finalScoreEl.textContent = score;
         gameoverEl.classList.remove('hidden');
         hintEl.style.display = 'none';
+        sfxCrash();
         // 爆炸粒子
         for (let i=0; i<40; i++) {
             spawnParticle(player.position.x, player.position.y+1, player.position.z, '#ff4444');
@@ -508,6 +533,7 @@
         if (!isJumping && !isRolling) {
             isJumping = true;
             jumpVelocity = JUMP_FORCE;
+            sfxJump();
         }
     }
 
@@ -575,8 +601,8 @@
         const absDx = Math.abs(dx);
         const absDy = Math.abs(dy);
         if (absDx > absDy * 1.5) {
-            if (dx > 0) moveRight();
-            else moveLeft();
+            if (dx > 0) moveLeft();
+            else moveRight();
         } else if (absDy > absDx * 1.5) {
             if (dy < 0) jump();
             else roll();
@@ -679,9 +705,9 @@
                 obstacles.push(createObstacle(LANE_POSITIONS[lane1], z, 'high'));
                 obstacles.push(createObstacle(LANE_POSITIONS[lane2], z + 0.5, 'low'));
             } else if (r < 0.42) {
-                // 火车（占两条道，降低出现率）
-                const trainLane = Math.random() > 0.5 ? 0 : 1;
-                obstacles.push(createObstacle(LANE_POSITIONS[trainLane], z, 'train'));
+                // 火车（占两条道，留一条安全通道）
+                const trainX = Math.random() > 0.5 ? -1 : 1;
+                obstacles.push(createObstacle(trainX, z, 'train'));
             } else {
                 // 金币行
                 const coinLane = Math.floor(Math.random() * 3);
@@ -729,6 +755,7 @@
                 if (checkCoinCollision(player, coin)) {
                     coinCount++;
                     score += 5;
+                    sfxCoin();
                     spawnCoinParticles(coin.position.x, coin.position.y, coin.position.z);
                     scene.remove(coin);
                     coins.splice(i, 1);
