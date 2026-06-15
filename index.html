@@ -575,8 +575,8 @@
         const absDx = Math.abs(dx);
         const absDy = Math.abs(dy);
         if (absDx > absDy * 1.5) {
-            if (dx > 0) moveRight();
-            else moveLeft();
+            if (dx > 0) moveLeft();
+            else moveRight();
         } else if (absDy > absDx * 1.5) {
             if (dy < 0) jump();
             else roll();
