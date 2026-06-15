@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>🏃 地铁跑酷 v9</title>
+    <title>🏃 地铁跑酷 v10</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none}
@@ -30,7 +30,7 @@
         <div id="scoreDisplay">0</div>
         <div id="coins">🪙 0</div>
     </div>
-    <div id="hint">⬅️➡️ 切换轨道 | ⬆️ 跳跃 | ⬇️ 滑铲</div>
+    <div id="hint">🟡横梁→滑铲 | 🔴跨栏→跳跃 | 🔵火车→切轨道</div>
     <div id="overlay">
         <h1>🏃 地铁跑酷</h1>
         <div class="sub">滑动屏幕控制方向</div>
@@ -329,11 +329,12 @@
         } catch(e) {}
     }
 
-    function sfxCoin() { playSound(1200, 'sine', 0.15, 0.2); setTimeout(()=>playSound(1600, 'sine', 0.1, 0.15), 80); }
-    function sfxJump() { playSound(300, 'triangle', 0.2, 0.15); }
-    function sfxCrash() { playSound(60, 'sawtooth', 0.5, 0.4); }
+    function sfxCoin() { playSound(1200, 'sine', 0.15, 0.25); setTimeout(()=>playSound(1600, 'sine', 0.1, 0.2), 80); }
+    function sfxJump() { playSound(400, 'triangle', 0.2, 0.2); }
+    function sfxCrash() { playSound(50, 'sawtooth', 0.6, 0.5); }
     function sfxStart() { playSound(500, 'sine', 0.15, 0.2); setTimeout(()=>playSound(700, 'sine', 0.15, 0.2), 100); }
-    function sfxSwipe() { playSound(200, 'sine', 0.1, 0.1); }
+    function sfxSwipe() { playSound(600, 'square', 0.08, 0.12); }
+    function sfxRoll() { playSound(150, 'triangle', 0.15, 0.18); }
 
     // ========== GAME STATE ==========
     let currentLane = 1; // 0=left, 1=center, 2=right
@@ -359,66 +360,64 @@
 
     function createObstacle(x, z, type) {
         const group = new THREE.Group();
-        let h, col;
+
         if (type === 'high') {
-            // 高障碍 - 需要滑铲
-            h = 1.6;
-            col = '#e74c3c';
-            const geo = new THREE.BoxGeometry(0.8, h, 0.25);
-            const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.4, metalness:0.3});
-            const bar = new THREE.Mesh(geo, mat);
-            bar.position.y = h/2;
+            // 🟡 高横梁 - 只能滑铲躲（黄色条纹）
+            const barGeo = new THREE.BoxGeometry(0.7, 0.15, 0.3);
+            const barMat = new THREE.MeshStandardMaterial({color:'#f39c12', roughness:0.2, metalness:0.3, emissive:'#f39c12', emissiveIntensity:0.3});
+            const bar = new THREE.Mesh(barGeo, barMat);
+            bar.position.y = 1.3;
             bar.castShadow = true;
-            bar.receiveShadow = true;
             group.add(bar);
 
-            // 支架
-            const poleGeo = new THREE.CylinderGeometry(0.08, 0.08, h, 8);
-            const poleMat = new THREE.MeshStandardMaterial({color:'#555', roughness:0.3, metalness:0.5});
-            [-0.45, 0.45].forEach(px => {
+            const poleGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.3, 8);
+            const poleMat = new THREE.MeshStandardMaterial({color:'#666', roughness:0.3, metalness:0.5});
+            [-0.33, 0.33].forEach(px => {
                 const pole = new THREE.Mesh(poleGeo, poleMat);
-                pole.position.set(px, h/2, 0);
+                pole.position.set(px, 0.65, 0);
                 pole.castShadow = true;
                 group.add(pole);
             });
         } else if (type === 'low') {
-            // 低障碍 - 需要跳跃
-            h = 0.5;
-            col = '#e67e22';
-            const geo = new THREE.BoxGeometry(0.8, h, 0.4);
-            const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.4, metalness:0.3});
-            const block = new THREE.Mesh(geo, mat);
-            block.position.y = h/2;
+            // 🔴 低跨栏 - 只能跳跃躲（红色）
+            const blockGeo = new THREE.BoxGeometry(0.7, 0.55, 0.45);
+            const blockMat = new THREE.MeshStandardMaterial({color:'#e74c3c', roughness:0.3, metalness:0.2, emissive:'#c0392b', emissiveIntensity:0.2});
+            const block = new THREE.Mesh(blockGeo, blockMat);
+            block.position.y = 0.28;
             block.castShadow = true;
             block.receiveShadow = true;
             group.add(block);
+
+            // 顶部警告条纹
+            const stripeGeo = new THREE.BoxGeometry(0.7, 0.05, 0.45);
+            const stripeMat = new THREE.MeshStandardMaterial({color:'#ffffff', roughness:0.2, emissive:'#ffffff', emissiveIntensity:0.5});
+            const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+            stripe.position.y = 0.58;
+            group.add(stripe);
         } else if (type === 'train') {
-            // 火车 - 只占两条道，留一条可躲
-            h = 2.5;
-            col = '#2c3e50';
-            const geo = new THREE.BoxGeometry(2.5, h, 0.6);
-            const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.3, metalness:0.6});
-            const train = new THREE.Mesh(geo, mat);
-            train.position.y = h/2;
+            // 🔵 火车 - 只能切换轨道躲（蓝色）
+            const trainGeo = new THREE.BoxGeometry(2.5, 2.2, 0.6);
+            const trainMat = new THREE.MeshStandardMaterial({color:'#2c3e50', roughness:0.3, metalness:0.6});
+            const train = new THREE.Mesh(trainGeo, trainMat);
+            train.position.y = 1.1;
             train.castShadow = true;
             train.receiveShadow = true;
             group.add(train);
 
-            // 窗户
-            const winGeo = new THREE.BoxGeometry(0.4, 0.4, 0.05);
-            const winMat = new THREE.MeshStandardMaterial({color:'#ffff88', roughness:0.2, emissive:'#ffff88', emissiveIntensity:0.6});
-            for (let wx = -1.2; wx <= 1.2; wx += 0.8) {
-                for (let wy = 0.6; wy <= 2.0; wy += 0.7) {
+            // 黄色窗户
+            const winGeo = new THREE.BoxGeometry(0.35, 0.35, 0.05);
+            const winMat = new THREE.MeshStandardMaterial({color:'#ffd700', roughness:0.2, emissive:'#ffd700', emissiveIntensity:0.7});
+            for (let wx = -0.9; wx <= 0.9; wx += 0.6) {
+                for (let wy = 0.5; wy <= 1.7; wy += 0.6) {
                     const win = new THREE.Mesh(winGeo, winMat);
-                    win.position.set(wx, wy, 0.35);
+                    win.position.set(wx, wy, 0.33);
                     group.add(win);
                 }
             }
-            group.userData = {trainX: x};
         }
 
         group.position.set(x, 0, z);
-        group.userData = {type, halfWidth: type==='train'?1.8:0.5};
+        group.userData = {type, halfWidth: type==='train'?1.25:0.35};
         scene.add(group);
         return group;
     }
@@ -547,6 +546,7 @@
         if (!isJumping && !isRolling) {
             isRolling = true;
             playerScaleY = 0.45;
+            sfxRoll();
             setTimeout(() => {
                 isRolling = false;
                 playerScaleY = 1;
@@ -555,13 +555,29 @@
     }
 
     function checkCollision(a, b) {
+        const type = b.userData.type;
+        const halfW = b.userData.halfWidth || 0.5;
         const dx = Math.abs(a.position.x - b.position.x);
-        const dy = Math.abs((a.position.y + (isRolling?0.3:1)) - (b.position.y + b.userData.halfWidth/2 || 0.5));
         const dz = Math.abs(a.position.z - b.position.z);
-        const thresholdX = 0.35 + (b.userData.halfWidth || 0.35);
-        const thresholdY = (isRolling ? 0.5 : 1.0);
-        const thresholdZ = 0.4;
-        return dx < thresholdX && dy < thresholdY && dz < thresholdZ;
+
+        // 火车：只能切轨道躲
+        if (type === 'train') {
+            return dx < 0.6 + halfW && dz < 0.55;
+        }
+
+        // 高横梁：只能滑铲躲
+        if (type === 'high') {
+            if (isRolling) return false;
+            return dx < 0.45 + halfW && dz < 0.4;
+        }
+
+        // 低跨栏：只能跳跃躲
+        if (type === 'low') {
+            if (isJumping && playerY > 0.2) return false;
+            return dx < 0.45 + halfW && dz < 0.4;
+        }
+
+        return false;
     }
 
     function checkCoinCollision(a, b) {
