@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>🏃 地铁跑酷 v10</title>
+    <title>🏃 地铁跑酷 v11</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none}
@@ -349,75 +349,103 @@
     let gameSpeed = 0.25;
     let gameRunning = false;
     let gameOver = false;
-    const GRAVITY = 0.025;
-    const JUMP_FORCE = 0.45;
+    const GRAVITY = 0.04;
+    const JUMP_FORCE = 0.35;
 
     // ========== OBSTACLES & COINS (Object Pool) ==========
     const obstacles = [];
     const coins = [];
     let spawnTimer = 0;
-    let spawnDistance = 20;
+    let spawnDistance = 30;
+    let lastObstacleZ = 0;
+    const MIN_OBSTACLE_GAP = 8;
 
     function createObstacle(x, z, type) {
         const group = new THREE.Group();
 
         if (type === 'high') {
-            // 🟡 高横梁 - 只能滑铲躲（黄色条纹）
-            const barGeo = new THREE.BoxGeometry(0.7, 0.15, 0.3);
-            const barMat = new THREE.MeshStandardMaterial({color:'#f39c12', roughness:0.2, metalness:0.3, emissive:'#f39c12', emissiveIntensity:0.3});
+            // 🟡⬇️ 高横梁 - 高达4米，必须滑铲！视觉上绝对跳不过去
+            const barGeo = new THREE.BoxGeometry(0.8, 4.5, 0.3);
+            const barMat = new THREE.MeshStandardMaterial({color:'#f39c12', roughness:0.2, metalness:0.3, emissive:'#e67e22', emissiveIntensity:0.4});
             const bar = new THREE.Mesh(barGeo, barMat);
-            bar.position.y = 1.3;
+            bar.position.y = 2.25;
             bar.castShadow = true;
             group.add(bar);
 
-            const poleGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.3, 8);
-            const poleMat = new THREE.MeshStandardMaterial({color:'#666', roughness:0.3, metalness:0.5});
-            [-0.33, 0.33].forEach(px => {
-                const pole = new THREE.Mesh(poleGeo, poleMat);
-                pole.position.set(px, 0.65, 0);
-                pole.castShadow = true;
-                group.add(pole);
+            // 底部空隙提示 - 绿色通行区域（滑铲通过处）
+            const gapGeo = new THREE.BoxGeometry(0.8, 0.8, 0.25);
+            const gapMat = new THREE.MeshStandardMaterial({color:'#2ecc71', roughness:0.2, emissive:'#27ae60', emissiveIntensity:0.6});
+            const gap = new THREE.Mesh(gapGeo, gapMat);
+            gap.position.y = 0.4;
+            group.add(gap);
+
+            // 危险条纹
+            [-0.4, 0.4].forEach(px => {
+                const stripeGeo = new THREE.BoxGeometry(0.08, 3, 0.32);
+                const stripeMat = new THREE.MeshStandardMaterial({color:'#000', roughness:0.3});
+                const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+                stripe.position.set(px, 2, 0);
+                group.add(stripe);
             });
         } else if (type === 'low') {
-            // 🔴 低跨栏 - 只能跳跃躲（红色）
-            const blockGeo = new THREE.BoxGeometry(0.7, 0.55, 0.45);
-            const blockMat = new THREE.MeshStandardMaterial({color:'#e74c3c', roughness:0.3, metalness:0.2, emissive:'#c0392b', emissiveIntensity:0.2});
+            // 🔴⬆️ 低跨栏 - 小腿高，必须跳跃！上方空间空旷
+            const blockGeo = new THREE.BoxGeometry(0.8, 0.5, 0.5);
+            const blockMat = new THREE.MeshStandardMaterial({color:'#e74c3c', roughness:0.2, metalness:0.2, emissive:'#c0392b', emissiveIntensity:0.4});
             const block = new THREE.Mesh(blockGeo, blockMat);
-            block.position.y = 0.28;
+            block.position.y = 0.25;
             block.castShadow = true;
             block.receiveShadow = true;
             group.add(block);
 
-            // 顶部警告条纹
-            const stripeGeo = new THREE.BoxGeometry(0.7, 0.05, 0.45);
-            const stripeMat = new THREE.MeshStandardMaterial({color:'#ffffff', roughness:0.2, emissive:'#ffffff', emissiveIntensity:0.5});
-            const stripe = new THREE.Mesh(stripeGeo, stripeMat);
-            stripe.position.y = 0.58;
-            group.add(stripe);
+            // 白色警戒线
+            const lineGeo = new THREE.BoxGeometry(0.8, 0.06, 0.5);
+            const lineMat = new THREE.MeshStandardMaterial({color:'#ffffff', roughness:0.1, emissive:'#ffffff', emissiveIntensity:0.7});
+            const line = new THREE.Mesh(lineGeo, lineMat);
+            line.position.y = 0.55;
+            group.add(line);
+
+            // 红色警告柱
+            [-0.35, 0.35].forEach(px => {
+                const pGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.7, 8);
+                const pMat = new THREE.MeshStandardMaterial({color:'#ff0000', roughness:0.2, emissive:'#ff0000', emissiveIntensity:0.5});
+                const p = new THREE.Mesh(pGeo, pMat);
+                p.position.set(px, 0.35, 0);
+                group.add(p);
+            });
         } else if (type === 'train') {
-            // 🔵 火车 - 只能切换轨道躲（蓝色）
-            const trainGeo = new THREE.BoxGeometry(2.5, 2.2, 0.6);
-            const trainMat = new THREE.MeshStandardMaterial({color:'#2c3e50', roughness:0.3, metalness:0.6});
+            // 🔵↔️ 火车 - 巨型，只能切轨道！带闪烁警示灯
+            const trainGeo = new THREE.BoxGeometry(2.5, 3.5, 0.7);
+            const trainMat = new THREE.MeshStandardMaterial({color:'#1a2530', roughness:0.3, metalness:0.7});
             const train = new THREE.Mesh(trainGeo, trainMat);
-            train.position.y = 1.1;
+            train.position.y = 1.75;
             train.castShadow = true;
             train.receiveShadow = true;
             group.add(train);
 
-            // 黄色窗户
-            const winGeo = new THREE.BoxGeometry(0.35, 0.35, 0.05);
-            const winMat = new THREE.MeshStandardMaterial({color:'#ffd700', roughness:0.2, emissive:'#ffd700', emissiveIntensity:0.7});
+            // 警示灯（顶部红色闪烁 - 动画在渲染循环中处理）
+            const lightGeo = new THREE.SphereGeometry(0.15, 8, 8);
+            const lightMat = new THREE.MeshStandardMaterial({color:'#ff0000', roughness:0.1, emissive:'#ff0000', emissiveIntensity:1.5});
+            [-0.8, 0, 0.8].forEach(lx => {
+                const light = new THREE.Mesh(lightGeo, lightMat);
+                light.position.set(lx, 3.6, 0.35);
+                light.userData = {isLight: true};
+                group.add(light);
+            });
+
+            // 窗户
+            const winGeo = new THREE.BoxGeometry(0.3, 0.3, 0.05);
+            const winMat = new THREE.MeshStandardMaterial({color:'#ffe066', roughness:0.1, emissive:'#ffd700', emissiveIntensity:0.8});
             for (let wx = -0.9; wx <= 0.9; wx += 0.6) {
-                for (let wy = 0.5; wy <= 1.7; wy += 0.6) {
+                for (let wy = 0.6; wy <= 2.8; wy += 0.7) {
                     const win = new THREE.Mesh(winGeo, winMat);
-                    win.position.set(wx, wy, 0.33);
+                    win.position.set(wx, wy, 0.38);
                     group.add(win);
                 }
             }
         }
 
         group.position.set(x, 0, z);
-        group.userData = {type, halfWidth: type==='train'?1.25:0.35};
+        group.userData = {type, halfWidth: type==='train'?1.25:0.4};
         scene.add(group);
         return group;
     }
@@ -476,6 +504,7 @@
         gameOver = false;
         spawnTimer = 0;
         spawnDistance = 35;
+        lastObstacleZ = 0;
 
         player.position.set(targetX, playerY, 0);
         player.scale.set(1, 1, 1);
@@ -710,26 +739,31 @@
 
         // 生成障碍物和金币
         spawnTimer += speed;
-        if (spawnTimer > 4.5 - Math.min(gameSpeed * 1.5, 3.5)) {
+        if (spawnTimer > 5.0 - Math.min(gameSpeed * 1.2, 3.5)) {
             spawnTimer = 0;
-            const z = spawnDistance + Math.random() * 8;
+            const z = spawnDistance + Math.random() * 6;
+            // 强制缓冲：新障碍必须离上一个足够远
+            if (Math.abs(z - lastObstacleZ) < MIN_OBSTACLE_GAP) return;
             const r = Math.random();
 
-            if (r < 0.25) {
+            if (r < 0.2) {
                 // 单障碍
                 const lane = Math.floor(Math.random() * 3);
                 const type = Math.random() > 0.5 ? 'high' : 'low';
                 obstacles.push(createObstacle(LANE_POSITIONS[lane], z, type));
-            } else if (r < 0.35) {
+                lastObstacleZ = z;
+            } else if (r < 0.3) {
                 // 双障碍
                 const lane1 = Math.floor(Math.random() * 2);
                 const lane2 = lane1 + 1;
                 obstacles.push(createObstacle(LANE_POSITIONS[lane1], z, 'high'));
-                obstacles.push(createObstacle(LANE_POSITIONS[lane2], z + 0.5, 'low'));
-            } else if (r < 0.42) {
-                // 火车（占两条道，留一条安全通道）
+                obstacles.push(createObstacle(LANE_POSITIONS[lane2], z + 1, 'low'));
+                lastObstacleZ = z;
+            } else if (r < 0.38) {
+                // 火车
                 const trainX = Math.random() > 0.5 ? -1 : 1;
                 obstacles.push(createObstacle(trainX, z, 'train'));
+                lastObstacleZ = z;
             } else {
                 // 金币行
                 const coinLane = Math.floor(Math.random() * 3);
