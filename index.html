@@ -742,30 +742,26 @@
         if (spawnTimer > 5.0 - Math.min(gameSpeed * 1.2, 3.5)) {
             spawnTimer = 0;
             const z = spawnDistance + Math.random() * 6;
-            // 强制缓冲：新障碍必须离上一个足够远
-            if (Math.abs(z - lastObstacleZ) < MIN_OBSTACLE_GAP) return;
+            // 强制缓冲
+            const gapOk = Math.abs(z - lastObstacleZ) >= MIN_OBSTACLE_GAP;
             const r = Math.random();
 
-            if (r < 0.2) {
-                // 单障碍
+            if (gapOk && r < 0.2) {
                 const lane = Math.floor(Math.random() * 3);
                 const type = Math.random() > 0.5 ? 'high' : 'low';
                 obstacles.push(createObstacle(LANE_POSITIONS[lane], z, type));
                 lastObstacleZ = z;
-            } else if (r < 0.3) {
-                // 双障碍
+            } else if (gapOk && r < 0.3) {
                 const lane1 = Math.floor(Math.random() * 2);
                 const lane2 = lane1 + 1;
                 obstacles.push(createObstacle(LANE_POSITIONS[lane1], z, 'high'));
                 obstacles.push(createObstacle(LANE_POSITIONS[lane2], z + 1, 'low'));
                 lastObstacleZ = z;
-            } else if (r < 0.38) {
-                // 火车
+            } else if (gapOk && r < 0.38) {
                 const trainX = Math.random() > 0.5 ? -1 : 1;
                 obstacles.push(createObstacle(trainX, z, 'train'));
                 lastObstacleZ = z;
             } else {
-                // 金币行
                 const coinLane = Math.floor(Math.random() * 3);
                 const count = 3 + Math.floor(Math.random() * 6);
                 for (let i = 0; i < count; i++) {
