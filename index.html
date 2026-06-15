@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover, maximum-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>🏃 地铁跑酷</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none}
+        body{display:flex;justify-content:center;align-items:center}
+        canvas{display:block}
+        #ui{position:fixed;top:0;left:0;width:100%;pointer-events:none;z-index:10;padding:16px}
+        #scoreDisplay{color:#fff;font-size:48px;font-weight:900;text-align:center;text-shadow:0 2px 10px rgba(0,0,0,0.5)}
+        #coins{color:#ffd700;font-size:22px;text-align:center;margin-top:2px;text-shadow:0 2px 8px rgba(0,0,0,0.5)}
+        #overlay{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(0,0,0,0.75);z-index:20;transition:opacity 0.3s;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+        #overlay.hidden{opacity:0;pointer-events:none}
+        #overlay h1{color:#ff4444;font-size:42px;font-weight:900;margin-bottom:8px;text-shadow:0 0 20px rgba(255,68,68,0.5)}
+        #overlay .final{color:#ffd700;font-size:64px;font-weight:900}
+        #overlay .sub{color:#aaa;font-size:16px;margin-bottom:24px}
+        .btn{background:#ff4444;color:#fff;border:none;border-radius:30px;padding:16px 48px;font-size:20px;font-weight:700;cursor:pointer;pointer-events:auto;box-shadow:0 6px 24px rgba(255,68,68,0.4);transition:all 0.15s}
+        .btn:active{transform:scale(0.94);background:#e03030}
+        #hint{position:fixed;bottom:20px;left:0;width:100%;text-align:center;color:rgba(255,255,255,0.4);font-size:13px;z-index:10;pointer-events:none}
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="scoreDisplay">0</div>
+        <div id="coins">🪙 0</div>
+    </div>
+    <div id="hint">⬅️➡️ 切换轨道 | ⬆️ 跳跃 | ⬇️ 滑铲</div>
+    <div id="overlay">
+        <h1>🏃 地铁跑酷</h1>
+        <div class="sub">滑动屏幕控制方向</div>
+        <button class="btn" id="startBtn">开始跑酷</button>
+    </div>
+    <div id="gameover" class="hidden" style="position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(0,0,0,0.8);z-index:20;transition:opacity 0.3s;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)">
+        <h1 style="color:#ff4444;font-size:36px;font-weight:900;margin-bottom:8px">💥 游戏结束</h1>
+        <div class="final" id="finalScore" style="margin-bottom:4px">0</div>
+        <div class="sub" style="margin-bottom:24px">分</div>
+        <button class="btn" id="restartBtn">再来一局</button>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+    }
+    </script>
+
+    <script type="module">
+    import * as THREE from 'three';
+
+    // ========== DOM ==========
+    const scoreEl = document.getElementById('scoreDisplay');
+    const coinsEl = document.getElementById('coins');
+    const overlay = document.getElementById('overlay');
+    const gameoverEl = document.getElementById('gameover');
+    const finalScoreEl = document.getElementById('finalScore');
+    const startBtn = document.getElementById('startBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const hintEl = document.getElementById('hint');
+
+    // ========== THREE.JS SETUP ==========
+    const renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#87CEEB');
+    scene.fog = new THREE.Fog('#87CEEB', 30, 120);
+
+    const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.3, 150);
+    camera.position.set(0, 8, -14);
+    camera.lookAt(0, 1.5, 10);
+
+    // ========== LIGHTING ==========
+    const ambientLight = new THREE.AmbientLight('#bcd4f0', 1.8);
+    scene.add(ambientLight);
+
+    const sunLight = new THREE.DirectionalLight('#fff8e8', 4.5);
+    sunLight.position.set(30, 50, -20);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 0.5;
+    sunLight.shadow.camera.far = 150;
+    sunLight.shadow.camera.left = -30;
+    sunLight.shadow.camera.right = 30;
+    sunLight.shadow.camera.top = 30;
+    sunLight.shadow.camera.bottom = -5;
+    sunLight.shadow.bias = -0.0001;
+    sunLight.shadow.normalBias = 0.02;
+    scene.add(sunLight);
+
+    const hemisphereLight = new THREE.HemisphereLight('#87CEEB', '#3d5a3d', 1.0);
+    scene.add(hemisphereLight);
+
+    // ========== GROUND ==========
+    const GROUND_LENGTH = 80;
+    const TRACK_WIDTH = 6;
+    const LANE_POSITIONS = [-2, 0, 2];
+
+    // 地面材质
+    const groundGeo = new THREE.PlaneGeometry(TRACK_WIDTH, GROUND_LENGTH);
+    const groundMat = new THREE.MeshStandardMaterial({
+        color: '#5c5c5c',
+        roughness: 0.75,
+        metalness: 0.05
+    });
+    const ground1 = new THREE.Mesh(groundGeo, groundMat);
+    ground1.rotation.x = -Math.PI/2;
+    ground1.position.set(0, -0.05, GROUND_LENGTH/2);
+    ground1.receiveShadow = true;
+    scene.add(ground1);
+
+    const ground2 = new THREE.Mesh(groundGeo, groundMat);
+    ground2.rotation.x = -Math.PI/2;
+    ground2.position.set(0, -0.05, GROUND_LENGTH/2 + GROUND_LENGTH);
+    ground2.receiveShadow = true;
+    scene.add(ground2);
+
+    // 轨道线
+    function createTrackLine(x) {
+        const geo = new THREE.PlaneGeometry(0.15, GROUND_LENGTH);
+        const mat = new THREE.MeshStandardMaterial({color:'#ffffff', roughness:0.3, emissive:'#ffffff', emissiveIntensity:0.5});
+        const line1 = new THREE.Mesh(geo, mat);
+        line1.rotation.x = -Math.PI/2;
+        line1.position.set(x, 0, GROUND_LENGTH/2);
+        line1.renderOrder = 1;
+        line1.material.depthTest = true;
+        line1.material.depthWrite = true;
+        scene.add(line1);
+
+        const line2 = new THREE.Mesh(geo, mat);
+        line2.rotation.x = -Math.PI/2;
+        line2.position.set(x, 0, GROUND_LENGTH/2 + GROUND_LENGTH);
+        line2.renderOrder = 1;
+        scene.add(line2);
+
+        return [line1, line2];
+    }
+
+    const trackLines = [
+        createTrackLine(-2.5),
+        createTrackLine(-1.5),
+        createTrackLine(1.5),
+        createTrackLine(2.5),
+    ].flat();
+
+    // 枕木/铁轨
+    function createSleeper(z) {
+        const geo = new THREE.BoxGeometry(TRACK_WIDTH + 0.4, 0.08, 0.3);
+        const mat = new THREE.MeshStandardMaterial({color:'#3d3025', roughness:0.9});
+        const sleeper = new THREE.Mesh(geo, mat);
+        sleeper.position.set(0, 0.03, z);
+        sleeper.receiveShadow = true;
+        sleeper.castShadow = true;
+        return sleeper;
+    }
+
+    const sleepers = [];
+    for (let z = -10; z < GROUND_LENGTH * 2 - 10; z += 0.8) {
+        const s = createSleeper(z);
+        sleepers.push(s);
+        scene.add(s);
+    }
+
+    // ========== RAIL (铁轨条) ==========
+    function createRail(x, z) {
+        const geo = new THREE.BoxGeometry(0.08, 0.15, 1.6);
+        const mat = new THREE.MeshStandardMaterial({color:'#888888', roughness:0.3, metalness:0.9});
+        const rail = new THREE.Mesh(geo, mat);
+        rail.position.set(x, 0.1, z);
+        rail.castShadow = true;
+        return rail;
+    }
+
+    const rails = [];
+    for (let z = -10; z < GROUND_LENGTH * 2 - 10; z += 0.8) {
+        rails.push(createRail(-2, z));
+        rails.push(createRail(2, z));
+    }
+    rails.forEach(r => scene.add(r));
+
+    // ========== CITY BUILDINGS ==========
+    function createBuilding(x, z, w, h, d, color) {
+        const geo = new THREE.BoxGeometry(w, h, d);
+        const mat = new THREE.MeshStandardMaterial({color, roughness:0.5, metalness:0.1});
+        const building = new THREE.Mesh(geo, mat);
+        building.position.set(x, h/2, z);
+        building.castShadow = true;
+        building.receiveShadow = true;
+        return building;
+    }
+
+    const buildingColors = ['#7ba5c4', '#8db6ce', '#9ec8d8', '#6b8e9e', '#a0b8c8', '#8899aa', '#99aabb'];
+    for (let z = -20; z < GROUND_LENGTH * 2 + 20; z += 6) {
+        const side = Math.random() > 0.5 ? 1 : -1;
+        const x = side * (6 + Math.random() * 10);
+        const h = 4 + Math.random() * 20;
+        const w = 2 + Math.random() * 5;
+        const d = 2 + Math.random() * 4;
+        const color = buildingColors[Math.floor(Math.random() * buildingColors.length)];
+        const building = createBuilding(x, z + (Math.random()-0.5)*3, w, h, d, color);
+        scene.add(building);
+    }
+
+    // ========== TREES ==========
+    function createTree(x, z) {
+        const group = new THREE.Group();
+        const trunkGeo = new THREE.CylinderGeometry(0.2, 0.3, 3, 8);
+        const trunkMat = new THREE.MeshStandardMaterial({color:'#8B4513', roughness:0.8});
+        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+        trunk.position.y = 1.5;
+        trunk.castShadow = true;
+        group.add(trunk);
+
+        for (let i = 0; i < 3; i++) {
+            const foliageGeo = new THREE.ConeGeometry(0.8 - i*0.2, 1.5, 8);
+            const foliageMat = new THREE.MeshStandardMaterial({color:`hsl(${100+Math.random()*40},60%,${25+i*8}%)`, roughness:0.7});
+            const foliage = new THREE.Mesh(foliageGeo, foliageMat);
+            foliage.position.y = 2.5 + i * 0.8;
+            foliage.castShadow = true;
+            foliage.receiveShadow = true;
+            group.add(foliage);
+        }
+        group.position.set(x, 0, z);
+        return group;
+    }
+
+    for (let z = -20; z < GROUND_LENGTH * 2 + 20; z += 4) {
+        if (Math.random() > 0.5) {
+            const side = Math.random() > 0.5 ? 1 : -1;
+            const x = side * (7 + Math.random() * 8);
+            scene.add(createTree(x, z + Math.random()*2));
+        }
+    }
+
+    // ========== PLAYER ==========
+    const player = new THREE.Group();
+
+    // 身体
+    const bodyGeo = new THREE.CapsuleGeometry(0.35, 0.8, 4, 8);
+    const bodyMat = new THREE.MeshStandardMaterial({color:'#ff6b35', roughness:0.3, metalness:0.1});
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 1.0;
+    body.castShadow = true;
+    player.add(body);
+
+    // 头
+    const headGeo = new THREE.SphereGeometry(0.3, 16, 16);
+    const headMat = new THREE.MeshStandardMaterial({color:'#ffd5c2', roughness:0.4});
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.85;
+    head.castShadow = true;
+    player.add(head);
+
+    // 帽子
+    const hatGeo = new THREE.CylinderGeometry(0.28, 0.32, 0.3, 16);
+    const hatMat = new THREE.MeshStandardMaterial({color:'#e03030', roughness:0.3});
+    const hat = new THREE.Mesh(hatGeo, hatMat);
+    hat.position.y = 2.1;
+    hat.castShadow = true;
+    player.add(hat);
+
+    const hatBrimGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.06, 16);
+    const hatBrim = new THREE.Mesh(hatBrimGeo, hatMat);
+    hatBrim.position.y = 1.98;
+    player.add(hatBrim);
+
+    // 手臂
+    const armGeo = new THREE.CapsuleGeometry(0.12, 0.5, 4, 8);
+    const armMat = new THREE.MeshStandardMaterial({color:'#ff6b35', roughness:0.3});
+    const leftArm = new THREE.Mesh(armGeo, armMat);
+    leftArm.position.set(-0.45, 1.3, 0);
+    leftArm.rotation.z = 0.3;
+    leftArm.castShadow = true;
+    player.add(leftArm);
+
+    const rightArm = new THREE.Mesh(armGeo, armMat);
+    rightArm.position.set(0.45, 1.3, 0);
+    rightArm.rotation.z = -0.3;
+    rightArm.castShadow = true;
+    player.add(rightArm);
+
+    // 腿
+    const legGeo = new THREE.CapsuleGeometry(0.14, 0.4, 4, 8);
+    const legMat = new THREE.MeshStandardMaterial({color:'#2d2d6b', roughness:0.3});
+    const leftLeg = new THREE.Mesh(legGeo, legMat);
+    leftLeg.position.set(-0.18, 0.35, 0);
+    leftLeg.castShadow = true;
+    player.add(leftLeg);
+
+    const rightLeg = new THREE.Mesh(legGeo, legMat);
+    rightLeg.position.set(0.18, 0.35, 0);
+    rightLeg.castShadow = true;
+    player.add(rightLeg);
+
+    player.position.set(0, 0, 0);
+    player.castShadow = true;
+    scene.add(player);
+
+    // ========== GAME STATE ==========
+    let currentLane = 1; // 0=left, 1=center, 2=right
+    let targetX = LANE_POSITIONS[currentLane];
+    let isJumping = false;
+    let isRolling = false;
+    let jumpVelocity = 0;
+    let playerY = 0;
+    let playerScaleY = 1;
+    let score = 0;
+    let coinCount = 0;
+    let gameSpeed = 0.25;
+    let gameRunning = false;
+    let gameOver = false;
+    const GRAVITY = 0.025;
+    const JUMP_FORCE = 0.45;
+
+    // ========== OBSTACLES & COINS (Object Pool) ==========
+    const obstacles = [];
+    const coins = [];
+    let spawnTimer = 0;
+    let spawnDistance = 20;
+
+    function createObstacle(x, z, type) {
+        const group = new THREE.Group();
+        let h, col;
+        if (type === 'high') {
+            // 高障碍 - 需要滑铲
+            h = 2.0;
+            col = '#e74c3c';
+            const geo = new THREE.BoxGeometry(1.0, h, 0.3);
+            const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.4, metalness:0.3});
+            const bar = new THREE.Mesh(geo, mat);
+            bar.position.y = h/2;
+            bar.castShadow = true;
+            bar.receiveShadow = true;
+            group.add(bar);
+
+            // 支架
+            const poleGeo = new THREE.CylinderGeometry(0.08, 0.08, h, 8);
+            const poleMat = new THREE.MeshStandardMaterial({color:'#555', roughness:0.3, metalness:0.5});
+            [-0.45, 0.45].forEach(px => {
+                const pole = new THREE.Mesh(poleGeo, poleMat);
+                pole.position.set(px, h/2, 0);
+                pole.castShadow = true;
+                group.add(pole);
+            });
+        } else if (type === 'low') {
+            // 低障碍 - 需要跳跃
+            h = 0.6;
+            col = '#e67e22';
+            const geo = new THREE.BoxGeometry(1.0, h, 0.5);
+            const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.4, metalness:0.3});
+            const block = new THREE.Mesh(geo, mat);
+            block.position.y = h/2;
+            block.castShadow = true;
+            block.receiveShadow = true;
+            group.add(block);
+        } else if (type === 'train') {
+            // 火车 - 占据两个轨道
+            h = 2.5;
+            col = '#2c3e50';
+            const geo = new THREE.BoxGeometry(3.5, h, 0.6);
+            const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.3, metalness:0.6});
+            const train = new THREE.Mesh(geo, mat);
+            train.position.y = h/2;
+            train.castShadow = true;
+            train.receiveShadow = true;
+            group.add(train);
+
+            // 窗户
+            const winGeo = new THREE.BoxGeometry(0.4, 0.4, 0.05);
+            const winMat = new THREE.MeshStandardMaterial({color:'#ffff88', roughness:0.2, emissive:'#ffff88', emissiveIntensity:0.6});
+            for (let wx = -1.2; wx <= 1.2; wx += 0.8) {
+                for (let wy = 0.6; wy <= 2.0; wy += 0.7) {
+                    const win = new THREE.Mesh(winGeo, winMat);
+                    win.position.set(wx, wy, 0.35);
+                    group.add(win);
+                }
+            }
+            group.userData = {trainX: x};
+        }
+
+        group.position.set(x, 0, z);
+        group.userData = {type, halfWidth: type==='train'?1.8:0.5};
+        scene.add(group);
+        return group;
+    }
+
+    function createCoin(x, y, z) {
+        const geo = new THREE.CylinderGeometry(0.25, 0.25, 0.06, 16);
+        const mat = new THREE.MeshStandardMaterial({
+            color:'#ffd700',
+            roughness:0.1,
+            metalness:0.9,
+            emissive:'#ff8c00',
+            emissiveIntensity:0.4
+        });
+        const coin = new THREE.Mesh(geo, mat);
+        coin.position.set(x, y, z);
+        coin.castShadow = true;
+        scene.add(coin);
+        return coin;
+    }
+
+    // ========== POWER-UP PARTICLES ==========
+    const particles = [];
+    function spawnParticle(x, y, z, color) {
+        const geo = new THREE.SphereGeometry(0.08, 4, 4);
+        const mat = new THREE.MeshBasicMaterial({color});
+        const p = new THREE.Mesh(geo, mat);
+        p.position.set(x, y, z);
+        p.userData = {
+            vx: (Math.random()-0.5)*0.2,
+            vy: Math.random()*0.3 + 0.2,
+            vz: (Math.random()-0.5)*0.2,
+            life: 1
+        };
+        scene.add(p);
+        particles.push(p);
+    }
+
+    function spawnCoinParticles(x, y, z) {
+        for (let i=0; i<5; i++) {
+            spawnParticle(x, y, z, '#ffd700');
+        }
+    }
+
+    // ========== GAME LOGIC ==========
+    function resetGame() {
+        currentLane = 1;
+        targetX = LANE_POSITIONS[currentLane];
+        isJumping = false;
+        isRolling = false;
+        jumpVelocity = 0;
+        playerY = 0;
+        playerScaleY = 1;
+        score = 0;
+        coinCount = 0;
+        gameSpeed = 0.25;
+        gameOver = false;
+        spawnTimer = 0;
+        spawnDistance = 20;
+
+        player.position.set(targetX, playerY, 0);
+        player.scale.set(1, 1, 1);
+
+        // 清除障碍物
+        obstacles.forEach(o => scene.remove(o));
+        obstacles.length = 0;
+        // 清除金币
+        coins.forEach(c => scene.remove(c));
+        coins.length = 0;
+        // 清除粒子
+        particles.forEach(p => scene.remove(p));
+        particles.length = 0;
+
+        scoreEl.textContent = '0';
+        coinsEl.textContent = '🪙 0';
+        gameoverEl.classList.add('hidden');
+        hintEl.style.display = 'block';
+    }
+
+    function startGame() {
+        resetGame();
+        gameRunning = true;
+        overlay.classList.add('hidden');
+        gameoverEl.classList.add('hidden');
+    }
+
+    function endGame() {
+        gameRunning = false;
+        gameOver = true;
+        finalScoreEl.textContent = score;
+        gameoverEl.classList.remove('hidden');
+        hintEl.style.display = 'none';
+        // 爆炸粒子
+        for (let i=0; i<40; i++) {
+            spawnParticle(player.position.x, player.position.y+1, player.position.z, '#ff4444');
+        }
+    }
+
+    function moveLeft() {
+        if (currentLane > 0) {
+            currentLane--;
+            targetX = LANE_POSITIONS[currentLane];
+        }
+    }
+
+    function moveRight() {
+        if (currentLane < 2) {
+            currentLane++;
+            targetX = LANE_POSITIONS[currentLane];
+        }
+    }
+
+    function jump() {
+        if (!isJumping && !isRolling) {
+            isJumping = true;
+            jumpVelocity = JUMP_FORCE;
+        }
+    }
+
+    function roll() {
+        if (!isJumping && !isRolling) {
+            isRolling = true;
+            playerScaleY = 0.45;
+            setTimeout(() => {
+                isRolling = false;
+                playerScaleY = 1;
+            }, 600);
+        }
+    }
+
+    function checkCollision(a, b) {
+        const dx = Math.abs(a.position.x - b.position.x);
+        const dy = Math.abs((a.position.y + (isRolling?0.3:1)) - (b.position.y + b.userData.halfWidth/2 || 0.5));
+        const dz = Math.abs(a.position.z - b.position.z);
+        const thresholdX = 0.4 + (b.userData.halfWidth || 0.4);
+        const thresholdY = (isRolling ? 0.7 : 1.4);
+        const thresholdZ = 0.5;
+        return dx < thresholdX && dy < thresholdY && dz < thresholdZ;
+    }
+
+    function checkCoinCollision(a, b) {
+        const dx = Math.abs(a.position.x - b.position.x);
+        const dy = Math.abs((a.position.y + 1) - b.position.y);
+        const dz = Math.abs(a.position.z - b.position.z);
+        return dx < 0.7 && dy < 0.7 && dz < 0.5;
+    }
+
+    // ========== INPUT ==========
+    let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+
+    document.addEventListener('keydown', e => {
+        if (!gameRunning) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startGame(); }
+            return;
+        }
+        switch(e.key) {
+            case 'ArrowLeft': case 'a': case 'A': e.preventDefault(); moveLeft(); break;
+            case 'ArrowRight': case 'd': case 'D': e.preventDefault(); moveRight(); break;
+            case 'ArrowUp': case 'w': case 'W': case ' ': e.preventDefault(); jump(); break;
+            case 'ArrowDown': case 's': case 'S': e.preventDefault(); roll(); break;
+        }
+    });
+
+    window.addEventListener('touchstart', e => {
+        if (!gameRunning) { startGame(); return; }
+        const t = e.touches[0];
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+        touchStartTime = Date.now();
+    }, {passive: false});
+
+    window.addEventListener('touchend', e => {
+        if (!gameRunning) return;
+        const t = e.changedTouches[0];
+        const dx = t.clientX - touchStartX;
+        const dy = t.clientY - touchStartY;
+        const dt = Date.now() - touchStartTime;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 30 || dt > 400) return;
+
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        if (absDx > absDy * 1.5) {
+            if (dx > 0) moveRight();
+            else moveLeft();
+        } else if (absDy > absDx * 1.5) {
+            if (dy < 0) jump();
+            else roll();
+        }
+    });
+
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', startGame);
+
+    // ========== ANIMATION LOOP ==========
+    const clock = new THREE.Clock();
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        const dt = Math.min(clock.getDelta(), 0.05);
+        if (gameRunning) {
+            update(dt);
+        }
+        updateParticles(dt);
+        render();
+    }
+
+    function update(dt) {
+        // 加速
+        gameSpeed += dt * 0.008;
+        const speed = gameSpeed * 60 * dt;
+
+        // 滚动地面
+        [ground1, ground2].forEach(g => {
+            g.position.z -= speed;
+            if (g.position.z < -GROUND_LENGTH/2) {
+                g.position.z += GROUND_LENGTH * 2;
+            }
+        });
+
+        // 滚动轨道线
+        trackLines.forEach(l => {
+            l.position.z -= speed;
+            if (l.position.z < -GROUND_LENGTH/2) l.position.z += GROUND_LENGTH * 2;
+        });
+
+        // 滚动枕木
+        sleepers.forEach(s => {
+            s.position.z -= speed;
+            if (s.position.z < -10) s.position.z += GROUND_LENGTH * 2 - 10;
+        });
+
+        // 滚动铁轨
+        rails.forEach(r => {
+            r.position.z -= speed;
+            if (r.position.z < -10) r.position.z += GROUND_LENGTH * 2 - 10;
+        });
+
+        // 平滑切换轨道
+        player.position.x += (targetX - player.position.x) * 0.2;
+
+        // 跳跃
+        if (isJumping) {
+            playerY += jumpVelocity;
+            jumpVelocity -= GRAVITY;
+            if (playerY <= 0) {
+                playerY = 0;
+                isJumping = false;
+                jumpVelocity = 0;
+            }
+        }
+        player.position.y = playerY;
+
+        // 滑铲缩放
+        const targetScaleY = isRolling ? 0.45 : 1;
+        playerScaleY += (targetScaleY - playerScaleY) * 0.3;
+        player.scale.y = playerScaleY;
+
+        // 跑步动画 - 手臂和腿摆动
+        if (!isJumping && !isRolling) {
+            const swing = Math.sin(Date.now() * 0.015 * gameSpeed * 60) * 0.5;
+            leftArm.rotation.x = swing;
+            rightArm.rotation.x = -swing;
+            leftLeg.rotation.x = -swing;
+            rightLeg.rotation.x = swing;
+        }
+
+        // 生成障碍物和金币
+        spawnTimer += speed;
+        if (spawnTimer > 3.5 - Math.min(gameSpeed * 2, 2.5)) {
+            spawnTimer = 0;
+            const z = spawnDistance + Math.random() * 5;
+            const r = Math.random();
+
+            if (r < 0.35) {
+                // 单障碍
+                const lane = Math.floor(Math.random() * 3);
+                const type = Math.random() > 0.5 ? 'high' : 'low';
+                obstacles.push(createObstacle(LANE_POSITIONS[lane], z, type));
+            } else if (r < 0.55) {
+                // 双障碍（需要快速切换）
+                const lane1 = Math.floor(Math.random() * 2);
+                const lane2 = lane1 + 1;
+                const type = Math.random() > 0.5 ? 'high' : 'low';
+                obstacles.push(createObstacle(LANE_POSITIONS[lane1], z, type));
+                obstacles.push(createObstacle(LANE_POSITIONS[lane2], z + 0.5, type === 'high' ? 'low' : 'high'));
+            } else if (r < 0.7) {
+                // 火车（占两条道）
+                const trainLane = Math.random() > 0.5 ? 0 : 1;
+                obstacles.push(createObstacle(LANE_POSITIONS[trainLane], z, 'train'));
+            } else {
+                // 金币行
+                const coinLane = Math.floor(Math.random() * 3);
+                const count = 3 + Math.floor(Math.random() * 5);
+                for (let i = 0; i < count; i++) {
+                    coins.push(createCoin(LANE_POSITIONS[coinLane], 1.2, z + i * 1.5));
+                }
+            }
+        }
+
+        // 单独生成金币
+        if (Math.random() < 0.03) {
+            const coinLane = Math.floor(Math.random() * 3);
+            coins.push(createCoin(LANE_POSITIONS[coinLane], 1.2, spawnDistance + Math.random() * 8));
+        }
+
+        // 移动障碍物
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            const obs = obstacles[i];
+            obs.position.z -= speed;
+
+            // 碰撞检测
+            if (Math.abs(obs.position.z) < 0.6) {
+                if (checkCollision(player, obs)) {
+                    endGame();
+                    return;
+                }
+            }
+
+            // 回收远处障碍物
+            if (obs.position.z < -10) {
+                scene.remove(obs);
+                obstacles.splice(i, 1);
+            }
+        }
+
+        // 移动金币
+        for (let i = coins.length - 1; i >= 0; i--) {
+            const coin = coins[i];
+            coin.position.z -= speed;
+            coin.rotation.y += 0.08;
+
+            // 收集检测
+            if (Math.abs(coin.position.z) < 0.6) {
+                if (checkCoinCollision(player, coin)) {
+                    coinCount++;
+                    score += 5;
+                    spawnCoinParticles(coin.position.x, coin.position.y, coin.position.z);
+                    scene.remove(coin);
+                    coins.splice(i, 1);
+                    continue;
+                }
+            }
+
+            // 回收
+            if (coin.position.z < -10) {
+                scene.remove(coin);
+                coins.splice(i, 1);
+            }
+        }
+
+        // 分数
+        score += Math.floor(speed * 2);
+        scoreEl.textContent = Math.floor(score);
+        coinsEl.textContent = '🪙 ' + coinCount;
+    }
+
+    function updateParticles(dt) {
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.position.x += p.userData.vx;
+            p.position.y += p.userData.vy;
+            p.position.z += p.userData.vz;
+            p.userData.vy -= 0.01;
+            p.userData.life -= 0.03;
+            p.material.opacity = p.userData.life;
+            p.material.transparent = true;
+            if (p.userData.life <= 0) {
+                scene.remove(p);
+                particles.splice(i, 1);
+            }
+        }
+    }
+
+    function render() {
+        // 摄像机平滑跟随
+        const camTargetX = player.position.x * 0.3;
+        camera.position.x += (camTargetX - camera.position.x) * 0.05;
+        camera.position.y += (8 + playerY * 2 - camera.position.y) * 0.05;
+        camera.lookAt(player.position.x * 0.3, 1.5 + playerY, player.position.z + 12);
+
+        renderer.render(scene, camera);
+    }
+
+    // ========== WINDOW RESIZE ==========
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ========== START ==========
+    overlay.classList.remove('hidden');
+    gameoverEl.classList.add('hidden');
+    render(); // 初始渲染一帧
+    // 在开始页渲染一个旋转预览
+    function previewRender() {
+        if (gameRunning) return;
+        camera.position.x = Math.sin(Date.now()*0.0003) * 5;
+        camera.position.y = 6;
+        camera.position.z = -10;
+        camera.lookAt(0, 1, 8);
+        renderer.render(scene, camera);
+        requestAnimationFrame(() => {
+            if (!gameRunning) previewRender();
+            else {
+                camera.position.set(0, 8, -14);
+            }
+        });
+    }
+    previewRender();
+    animate();
+    </script>
+</body>
+</html>
